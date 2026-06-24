@@ -1,1 +1,838 @@
+import { useState, useMemo } from "react";
 
+const ALERTS = [
+  // ===== 出血リスク =====
+  {
+    id: 1,
+    drugs: ["ワルファリン", "ワーファリン"],
+    stemHint: "商品名：ワーファリン®",
+    diseases: ["心房細動（AF）", "深部静脈血栓症（DVT）", "肺塞栓症（PE）", "機械弁置換術後", "脳梗塞予防"],
+    category: "出血リスク",
+    level: "critical",
+    title: "抗凝固中→出血リスク最大級",
+    conditions: [
+      { name: "慢性硬膜下血腫", desc: "軽微な頭部外傷でも発症。意識障害・片麻痺・頭痛が遅発性に出現", action: "頭部外傷歴を必ず確認。3次病院搬送を検討" },
+      { name: "消化管出血", desc: "吐血・下血・タール便。腹痛なしでも大量出血しうる", action: "バイタル安定していても速やかに搬送" },
+      { name: "脳出血", desc: "血圧上昇＋神経症状→通常より重篤化しやすい", action: "PT-INR値を家族・かかりつけ医に確認" },
+    ],
+    points: ["PT-INRが高いほど出血リスク↑（目標域は2.0〜3.0）", "転倒・外傷時は「軽傷に見えても」画像検査が必須", "拮抗薬：ビタミンK・新鮮凍結血漿（FFP）・プロトロンビン複合体製剤"],
+    icon: "🩸", color: "#e53e3e",
+  },
+  {
+    id: 2,
+    drugs: ["リバーロキサバン", "イグザレルト", "アピキサバン", "エリキュース", "エドキサバン", "リクシアナ", "ダビガトラン", "プラザキサ"],
+    stemHint: "ステム：〜キサバン（DOAC）",
+    diseases: ["心房細動（AF）", "深部静脈血栓症（DVT）", "肺塞栓症（PE）", "脳梗塞予防", "機械弁置換術後"],
+    category: "出血リスク",
+    level: "critical",
+    title: "DOAC内服中→出血リスク・拮抗薬に注意",
+    conditions: [
+      { name: "頭蓋内出血・硬膜下血腫", desc: "ワルファリンと同様に重篤。血中濃度のモニタリングが難しい", action: "頭部外傷→即3次搬送。DOAC種類と最終服薬時刻を確認" },
+      { name: "消化管出血", desc: "消化管出血リスクはDOACによって異なる（ダビガトランで高め）", action: "大量出血の場合は中和薬の有無を病院に伝達" },
+    ],
+    points: ["ワルファリンと異なりPT-INRで管理できない→血中濃度不明", "中和薬：イダルシズマブ（プラザキサ用）、アンデキサネット（Xa阻害薬用）", "透析では除去されにくい（ダビガトランを除く）", "腎機能低下で蓄積→高齢者は特に注意"],
+    icon: "🩸", color: "#e53e3e",
+  },
+  {
+    id: 3,
+    drugs: ["クロピドグレル", "プラビックス", "アスピリン", "バイアスピリン", "チカグレロル", "ブリリンタ", "プラスグレル", "エフィエント"],
+    stemHint: "抗血小板薬（ACS・脳梗塞予防）",
+    diseases: ["急性冠症候群（ACS）既往", "脳梗塞・TIA既往", "末梢動脈疾患（PAD）", "冠動脈ステント留置後"],
+    category: "出血リスク",
+    level: "high",
+    title: "抗血小板薬→止血しにくい",
+    conditions: [
+      { name: "外傷・頭部外傷", desc: "血小板機能が低下→止血に時間がかかる。硬膜下血腫リスク↑", action: "外傷時は通常より慎重に評価。圧迫止血を長めに" },
+      { name: "消化管出血", desc: "胃粘膜障害と抗血小板作用で出血しやすい", action: "黒色便・腹痛がある場合は出血を疑う" },
+    ],
+    points: ["2剤併用（DAPT：アスピリン＋クロピドグレル）でリスクさらに増大", "ACS・脳梗塞既往の患者が多い→基礎疾患も念頭に", "手術前の中止が必要なことが多い（術前確認ポイント）"],
+    icon: "🩸", color: "#e53e3e",
+  },
+  // ===== 血糖・代謝 =====
+  {
+    id: 4,
+    drugs: ["インスリン", "ヒューマログ", "ノボラピッド", "ランタス", "トレシーバ", "ヒューマリン", "ノボリン"],
+    stemHint: "インスリン製剤（注射）",
+    diseases: ["1型糖尿病", "2型糖尿病（インスリン依存）", "糖尿病性腎症", "術後血糖管理"],
+    category: "血糖・代謝",
+    level: "critical",
+    title: "インスリン使用中→意識障害＝低血糖を最初に疑え",
+    conditions: [
+      { name: "低血糖昏睡", desc: "意識障害・痙攣・異常行動。脳卒中・てんかんと間違えやすい", action: "血糖測定が最優先。50mg/dL未満→ブドウ糖投与" },
+      { name: "糖尿病性ケトアシドーシス（DKA）", desc: "腹痛・嘔吐・過呼吸（Kussmaul呼吸）・フルーツ臭の呼気", action: "血糖高値＋意識障害＋嘔吐→DKAを疑い3次搬送" },
+      { name: "インスリン過量投与", desc: "自己注射量の誤りや他者による過剰投与", action: "空になったインスリンペンや使い捨て注射器を確認" },
+    ],
+    points: ["インスリン使用中は意識障害の第一鑑別が低血糖", "低血糖は血糖測定なしに否定できない", "高齢者・腎不全患者は低血糖が遷延しやすい→繰り返し血糖確認"],
+    icon: "💉", color: "#d97706",
+  },
+  {
+    id: 5,
+    drugs: ["グリメピリド", "アマリール", "グリベンクラミド", "オイグルコン", "グリクラジド", "グリミクロン", "ナテグリニド", "スターシス", "レパグリニド"],
+    stemHint: "SU薬・グリニド系（経口血糖降下薬）",
+    diseases: ["2型糖尿病", "高齢者の軽症〜中等症2型糖尿病"],
+    category: "血糖・代謝",
+    level: "critical",
+    title: "SU薬→遷延性低血糖に注意。ブドウ糖だけでは不十分",
+    conditions: [
+      { name: "遷延性低血糖", desc: "ブドウ糖投与後も低血糖が再発。半減期が長い（特にグリベンクラミド）。ブドウ糖投与がさらにインスリン分泌を刺激し悪化する悪循環に陥ることがある", action: "覚醒後も必ず入院観察。繰り返し血糖測定が必須。オクトレオチド（サンドスタチン®）50〜100μg SC/IVがインスリン分泌を抑制し有効" },
+      { name: "高齢者の低血糖昏睡", desc: "高齢者は低血糖の自覚症状が出にくい→発見が遅れる", action: "「ぼーっとしている」だけでも血糖測定を" },
+    ],
+    points: ["インスリンより低血糖が遷延しやすい（特に高齢者・腎不全）", "ブドウ糖投与で一時的に回復しても再発する→必ず入院", "【重要】ブドウ糖単独投与はさらなるインスリン分泌を刺激し低血糖を悪化させる場合がある", "オクトレオチド（サンドスタチン®）が有効：インスリン分泌を抑制し低血糖の再発を防ぐ。50〜100μg SC/IV"],
+    icon: "💉", color: "#d97706",
+  },
+  {
+    id: 6,
+    drugs: ["エンパグリフロジン", "ジャディアンス", "ダパグリフロジン", "フォシーガ", "カナグリフロジン", "カナグル", "イプラグリフロジン", "スーグラ"],
+    stemHint: "ステム：〜グリフロジン（SGLT2阻害薬）",
+    diseases: ["2型糖尿病", "慢性心不全（HFrEF・HFpEF）", "慢性腎臓病（CKD）"],
+    category: "血糖・代謝",
+    level: "high",
+    title: "SGLT2阻害薬→血糖正常でもDKAを起こす",
+    conditions: [
+      { name: "正常血糖DKA（euDKA）", desc: "血糖が正常〜軽度上昇（〜250mg/dL）でもケトアシドーシスが起きる。嘔吐・腹痛・倦怠感・過呼吸（Kussmaul呼吸）", action: "血糖正常でも意識障害＋倦怠感＋嘔吐→DKAの可能性あり。pH・ケトン体測定を依頼。「血糖が正常だからDKAではない」という判断は危険" },
+      { name: "脱水・低血圧", desc: "利尿作用で脱水。高齢者・感染症・手術後に急激な脱水をきたす", action: "嘔吐・発熱で経口摂取不能→早期輸液" },
+    ],
+    points: ["SGLT2阻害薬は血糖正常でもDKAを起こす（血糖測定だけでは否定できない）", "SGLT2阻害薬関連DKAの約50%は正常血糖（非使用者では5%のみ）", "典型的なDKAと異なり、インスリン欠乏ではなく炭水化物欠乏が主因", "2015年にFDAが安全性警告を発出：血糖が著明に上昇していないため診断が遅れる可能性", "術前3日間は中止が必要→緊急手術では必ず確認"],
+    icon: "💉", color: "#d97706",
+  },
+  {
+    id: 7,
+    drugs: ["メトホルミン", "メトグルコ", "グリコラン", "メトホルミン塩酸塩"],
+    stemHint: "ビグアナイド系（2型DM第一選択）",
+    diseases: ["2型糖尿病（肥満・インスリン抵抗性）", "多嚢胞性卵巣症候群（PCOS）"],
+    category: "血糖・代謝",
+    level: "high",
+    title: "メトホルミン＋腎不全→乳酸アシドーシスを疑え",
+    conditions: [
+      { name: "乳酸アシドーシス", desc: "腎機能低下で蓄積→倦怠感・筋肉痛・過呼吸・意識障害。致死率高い", action: "嘔吐・下痢・感染症後の意識障害＋メトホルミン内服→乳酸アシドーシス疑い" },
+    ],
+    points: ["造影剤投与前後48時間は休薬が必要→緊急造影CT前に必ず確認", "脱水・感染・腎機能低下時に蓄積リスク↑", "単独使用では低血糖を起こさない"],
+    icon: "💉", color: "#d97706",
+  },
+  // ===== 循環器 =====
+  {
+    id: 8,
+    drugs: ["ジゴキシン", "ジゴシン", "ラニラピッド", "メチルジゴキシン"],
+    stemHint: "ジギタリス製剤（心不全・AF）",
+    diseases: ["慢性心不全（収縮不全）", "心房細動（AF）の心拍数コントロール"],
+    category: "循環器",
+    level: "critical",
+    title: "ジゴキシン内服中→中毒症状・カルシウム禁忌",
+    conditions: [
+      { name: "ジゴキシン中毒", desc: "悪心・嘔吐・視覚異常（黄緑視・霧視）・徐脈・心室性不整脈。有効域が非常に狭い", action: "嘔吐＋徐脈＋不整脈→ジゴキシン中毒を疑い採血。電解質（K・Ca・Mg）確認" },
+      { name: "低K血症による毒性増強", desc: "低K血症でジゴキシン毒性が著明に増大→利尿薬との併用で起きやすい", action: "利尿薬も同時服用の場合は低K血症＋ジゴキシン中毒を強く疑う" },
+    ],
+    points: ["カルシウム製剤（グルコン酸Ca・塩化Ca）の投与は禁忌→致死的VFのリスク", "拮抗薬：ジゴキシン免疫Fab（ジゴバインド®）。投与後30〜60分で効果発現", "ジゴバインド®の投与適応：致死的不整脈・高K血症（>5.5mEq/L）・血中濃度>10ng/mL", "高齢者・腎不全患者は中毒リスクが高い"],
+    icon: "💓", color: "#c05621",
+  },
+  {
+    id: 9,
+    drugs: ["カルベジロール", "アーチスト", "ビソプロロール", "メインテート", "メトプロロール", "セロケン", "アテノロール", "テノーミン", "プロプラノロール", "インデラル"],
+    stemHint: "ステム：〜ロール（β遮断薬）",
+    diseases: ["高血圧症", "慢性心不全", "狭心症", "心筋梗塞後", "頻脈性不整脈"],
+    category: "循環器",
+    level: "high",
+    title: "β遮断薬→ショック時に頻脈が出ない・過量服薬で致死的",
+    conditions: [
+      { name: "マスクされたショック", desc: "出血・敗血症・脱水でもβ遮断薬で頻脈が抑制される→「脈が速くない」でショックを見逃す危険", action: "血圧低下があれば頻脈なしでもショックを疑う。皮膚・尿量・意識で評価" },
+      { name: "低血糖症状のマスク", desc: "動悸・頻脈（低血糖サイン）が出ない→低血糖を見逃しやすい", action: "糖尿病＋β遮断薬内服中は血糖測定を積極的に" },
+      { name: "気管支痙攣（喘息患者）", desc: "喘息患者への非選択的βブロッカーは禁忌→急性の気管支痙攣を誘発", action: "喘息発作＋β遮断薬内服→投与薬の見直しを搬送先に伝達" },
+      { name: "β遮断薬過量服薬", desc: "徐脈・低血圧・心ブロック・心原性ショック・低血糖・痙攣。致死的", action: "高用量インスリン＋ブドウ糖療法が第一選択。グルカゴン（1〜10mg IV）も有効" },
+    ],
+    points: ["バイタルは「血圧のみ」で評価せず、末梢循環（皮膚・毛細血管充満時間）も評価する", "急な中止でリバウンド狭心症・高血圧→自己中断を確認", "高用量インスリン療法：レギュラーインスリン 1単位/kg IVボーラス→0.5〜1単位/kg/h持続。心収縮力を改善", "グルカゴン（1〜10mg IV）はβ受容体を介さずに心収縮力を増強→β遮断薬中毒に有効"],
+    icon: "💓", color: "#c05621",
+  },
+  {
+    id: 10,
+    drugs: ["アムロジピン", "ノルバスク", "アムロジン", "ニフェジピン", "アダラート", "ジルチアゼム", "ヘルベッサー", "ベラパミル", "ワソラン"],
+    stemHint: "ステム：〜ジピン（Ca拮抗薬）",
+    diseases: ["高血圧症", "狭心症", "冠攣縮性狭心症", "心房細動（ジルチアゼム・ベラパミル）"],
+    category: "循環器",
+    level: "moderate",
+    title: "Ca拮抗薬→過量服薬で重篤な徐脈・ショック",
+    conditions: [
+      { name: "Ca拮抗薬過量服薬", desc: "徐脈・低血圧・心ブロック・心停止。致死的。特にベラパミル・ジルチアゼムで重篤", action: "「降圧薬を大量に飲んだ」→Ca拮抗薬かβ遮断薬かを確認。高用量カルシウム製剤・高用量インスリン療法が有効" },
+    ],
+    points: ["過量服薬時の治療：①塩化Ca 10% 20mL IV（またはグルコン酸Ca 60mL IV）を反復投与 ②高用量インスリン療法（β遮断薬過量と同様に有効） ③脂肪乳剤（イントラリポス®）：ベラパミル・ジルチアゼム中毒で有効な可能性", "徐放製剤は吸収が遅れて症状が遅発する→「飲んですぐ元気」でも安心できない", "βブロッカー過量と症状が似ているが治療が異なる→薬名確認が重要"],
+    icon: "💓", color: "#c05621",
+  },
+  {
+    id: 11,
+    drugs: ["アミオダロン", "アンカロン"],
+    stemHint: "抗不整脈薬（クラスIII）",
+    diseases: ["心房細動（AF）", "心室頻拍（VT）", "心室細動（VF）後", "WPW症候群"],
+    category: "循環器",
+    level: "high",
+    title: "アミオダロン内服中→QT延長・甲状腺・肺に注意",
+    conditions: [
+      { name: "QT延長・TdP", desc: "他のQT延長薬との併用でTorsades de Pointesを誘発", action: "不整脈＋アミオダロン内服→心電図でQT間隔を確認" },
+      { name: "甲状腺機能異常", desc: "ヨード含有→甲状腺機能亢進または低下を引き起こす", action: "頻脈・体重減少・発汗→甲状腺機能亢進を疑う" },
+      { name: "肺毒性（間質性肺炎）", desc: "乾性咳嗽・労作時呼吸困難・発熱", action: "呼吸困難＋長期アミオダロン内服→間質性肺炎を鑑別" },
+    ],
+    points: ["半減期が非常に長い（40〜55日）→中止後も数ヶ月は作用が持続", "ヨード含有→造影剤検査・甲状腺機能検査に影響"],
+    icon: "💓", color: "#c05621",
+  },
+  // ===== 神経・精神 =====
+  {
+    id: 12,
+    drugs: ["炭酸リチウム", "リーマス"],
+    stemHint: "商品名：リーマス®（気分安定薬）",
+    diseases: ["双極性障害（躁うつ病）", "躁状態の維持療法", "治療抵抗性うつ病（増強療法）"],
+    category: "神経・精神",
+    level: "critical",
+    title: "リーマス内服中→意識障害＝リチウム中毒を最初に疑え",
+    conditions: [
+      { name: "リチウム中毒", desc: "振戦・嘔吐・下痢・眠気→意識障害・痙攣・腎不全。脱水・NSAIDS服薬開始で急激に発症", action: "意識障害＋振戦＋嘔吐→「リーマス飲んでいるか」を確認。採血+補液（生食）" },
+    ],
+    points: ["有効域が非常に狭い（0.6〜1.2mEq/L）", "脱水（嘔吐・下痢・発熱）で急激にLi濃度が上昇", "NSAIDS（ロキソニン等）服薬開始でLi濃度が上昇", "透析で除去可能→重症時は透析適応"],
+    icon: "🧠", color: "#7c3aed",
+  },
+  {
+    id: 13,
+    drugs: ["ハロペリドール", "セレネース", "リスペリドン", "リスパダール", "オランザピン", "ジプレキサ", "クエチアピン", "セロクエル", "アリピプラゾール", "エビリファイ", "クロザピン", "クロザリル"],
+    stemHint: "ステム：〜ピン・〜ペリドン（抗精神病薬）",
+    diseases: ["統合失調症", "双極性障害", "せん妄（ICU・ER）", "認知症に伴う行動障害（BPSD）"],
+    category: "神経・精神",
+    level: "critical",
+    title: "抗精神病薬内服中→悪性症候群を見逃すな",
+    conditions: [
+      { name: "悪性症候群（NMS）", desc: "高体温（38℃以上）＋筋強剛＋意識障害＋自律神経症状（発汗・頻脈・血圧変動）。致死率高い", action: "高体温＋筋強剛＋抗精神病薬→悪性症候群疑い。即冷却・3次搬送" },
+      { name: "錐体外路症状（アカシジア・ジストニア）", desc: "アカシジア：じっとしていられない（「不安」と訴えることが多い）\n急性ジストニア：頸部・眼球・舌の異常な筋肉収縮", action: "「不安でじっとできない」＋抗精神病薬内服→アカシジアを疑う" },
+    ],
+    points: ["悪性症候群は熱中症と間違えやすい→内服薬の確認が鑑別の鍵", "CK（クレアチンキナーゼ）が著明に上昇（10,000〜100,000 IU/Lに達することも）→横紋筋融解にも注意", "アカシジアは「精神症状の悪化」と誤認されやすい", "悪性症候群の治療：①即座に抗精神病薬を中止 ②冷却（体温管理） ③ダントロレン（ダントリウム®）2.5mg/kg IV 反復可（最大10mg/kg/日） ④ブロモクリプチン（パーロデル®）2.5〜10mg 経口 8時間ごと"],
+    icon: "🧠", color: "#7c3aed",
+  },
+  {
+    id: 14,
+    drugs: ["アミトリプチリン", "トリプタノール", "イミプラミン", "トフラニール", "クロミプラミン", "アナフラニール", "ノルトリプチリン", "ノリトレン"],
+    stemHint: "ステム：〜トリプチリン・〜プラミン（三環系抗うつ薬TCA）",
+    diseases: ["うつ病（難治性・旧来の治療）", "慢性疼痛・神経因性疼痛", "夜尿症"],
+    category: "神経・精神",
+    level: "critical",
+    title: "TCA過量服薬→QRS延長＋痙攣で致死的",
+    conditions: [
+      { name: "TCA過量服薬", desc: "少量でも致死的。QRS延長→心室性不整脈→心停止。意識障害・痙攣を伴う", action: "意識障害＋痙攣＋QRS延長→TCA過量を疑い重炭酸Na静注（1〜2mEq/kg IV、目標pH 7.45〜7.55）。3次搬送" },
+      { name: "セロトニン症候群", desc: "SSRI・SNRIとの併用で発症。高体温＋クローヌス＋筋強剛", action: "高体温＋振戦＋興奮＋複数の抗うつ薬→セロトニン症候群を疑う" },
+    ],
+    points: ["心電図でQRS>100msがあれば重炭酸Na投与を考慮（適応：QRS幅>100ms・心室性不整脈）", "重炭酸Na投与量：1〜2mEq/kg IVボーラス。目標pH 7.45〜7.55", "フルマゼニル投与は【絶対禁忌】：TCA過量では痙攣を誘発する危険（たとえBZDを同時服用していても使わない）", "QRS延長はTCA中毒の最重要所見"],
+    icon: "🧠", color: "#7c3aed",
+  },
+  {
+    id: 15,
+    drugs: ["バルプロ酸", "デパケン", "セレニカ", "バレリン"],
+    stemHint: "商品名：デパケン®（抗てんかん・気分安定）",
+    diseases: ["てんかん（全般性・欠神発作・ミオクロニー）", "双極性障害（躁状態・気分安定）"],
+    category: "神経・精神",
+    level: "high",
+    title: "デパケン内服中→意識障害＝高アンモニア血症を疑え",
+    conditions: [
+      { name: "高アンモニア血症", desc: "意識障害・嘔吐・傾眠。血糖正常でも起きる。投与量に無関係で発症しうる", action: "意識障害＋デパケン内服→NH3採血。「てんかん発作後の意識障害」と間違えやすい" },
+      { name: "肝毒性（劇症肝炎）", desc: "特に2歳未満の小児や多剤併用で重篤。倦怠感・黄疸・腹痛", action: "嘔吐＋黄疸＋デパケン内服→肝障害を疑い緊急搬送" },
+    ],
+    points: ["てんかん発作後の遷延する意識障害は高アンモニア血症の可能性", "バルプロ酸は精神科でも使われる（双極性障害）", "妊娠可能年齢の女性への処方には重大な催奇形性リスクあり"],
+    icon: "🧠", color: "#7c3aed",
+  },
+  {
+    id: 16,
+    drugs: ["エスシタロプラム", "レクサプロ", "セルトラリン", "ジェイゾロフト", "パロキセチン", "パキシル", "フルボキサミン", "ルボックス", "デュロキセチン", "サインバルタ", "ベンラファキシン", "イフェクサー"],
+    stemHint: "SSRI・SNRI（抗うつ薬）",
+    diseases: ["うつ病・うつ状態", "パニック障害", "社交不安障害（SAD）", "強迫性障害（OCD）", "PTSD", "慢性疼痛（SNRI）"],
+    category: "神経・精神",
+    level: "moderate",
+    title: "SSRI/SNRI内服中→セロトニン症候群・急な中止に注意",
+    conditions: [
+      { name: "セロトニン症候群", desc: "複数の薬（SSRI＋TCA・MAO阻害薬・トリプタン等）の併用で発症。高体温＋筋強剛＋クローヌス＋興奮", action: "高体温＋振戦＋意識変容＋複数の抗うつ薬→セロトニン症候群疑い。即すべての薬を中止" },
+      { name: "中断症候群", desc: "急な服薬中断で「電気ショック感」「めまい」「悪心」が出現", action: "「薬を急に止めた」という情報があれば中断症候群を考慮" },
+    ],
+    points: ["SSRI単独でのセロトニン症候群はまれ→他の薬との組み合わせを確認", "過量服薬でのQT延長リスクあり（特にエスシタロプラム）"],
+    icon: "🧠", color: "#7c3aed",
+  },
+  // ===== ステロイド・免疫 =====
+  {
+    id: 17,
+    drugs: ["プレドニゾロン", "プレドニン", "メチルプレドニゾロン", "ソル・メドロール", "デキサメタゾン", "デカドロン", "ヒドロコルチゾン", "ソル・コーテフ", "ベタメタゾン", "リンデロン"],
+    stemHint: "ステム：〜ゾン・〜ゾロン（ステロイド）",
+    diseases: ["関節リウマチ", "全身性エリテマトーデス（SLE）", "炎症性腸疾患（IBD）", "喘息・COPD", "アレルギー疾患", "臓器移植後", "副腎不全"],
+    category: "ステロイド・免疫",
+    level: "high",
+    title: "ステロイド長期内服→副腎不全クリーゼを疑え",
+    conditions: [
+      { name: "副腎不全クリーゼ（急性副腎不全）", desc: "ステロイドを急に中止＋感染・手術・外傷などのストレスで発症。低血圧・低血糖・低Na血症・意識障害", action: "ショック＋ステロイド長期内服→副腎不全クリーゼを疑い。ハイドロコルチゾン100mg IV即座投与。その後6時間ごとに100mg IV" },
+      { name: "免疫抑制による重症感染症", desc: "ステロイド長期内服で免疫が低下→通常では起きにくい感染症（真菌・結核等）も発症", action: "高熱＋ステロイド長期内服→重症感染症として扱い早期抗菌薬・3次搬送" },
+      { name: "血糖上昇（ステロイド糖尿病）", desc: "血糖コントロールが急激に悪化。意識障害の原因になりうる", action: "ステロイド内服中の意識障害→血糖測定を" },
+    ],
+    points: ["「急に中止しないで」と指導されているが、急病・入院で中止されると危険", "用量が多いほど・長期ほどリスク高い（プレドニゾロン5mg/日以上を数週間以上）", "クリーゼの三徴：低血圧＋低血糖＋低Na血症", "初期輸液：成人では最初の1時間で生食1000mL。小児では20mL/kg（最大60mL/kg/時）", "低血糖があれば5%ブドウ糖液を併用", "救急隊がハイドロコルチゾンを携帯する地域もある：病院到着前の投与が推奨される", "医療従事者の認識不足が問題：「ステロイドの副作用が怖い」という誤解で投与を拒否されるケースが報告されている"],
+    icon: "💊", color: "#276749",
+  },
+  // ===== 腎・電解質 =====
+  {
+    id: 18,
+    drugs: ["フロセミド", "ラシックス", "アゾセミド", "ダイアート", "トラセミド", "ルプラック", "スピロノラクトン", "アルダクトン", "エプレレノン", "セララ"],
+    stemHint: "利尿薬（ループ・K保持性）",
+    diseases: ["慢性心不全", "高血圧症", "浮腫（心性・腎性・肝性）", "原発性アルドステロン症（スピロノラクトン）"],
+    category: "腎・電解質",
+    level: "high",
+    title: "利尿薬内服中→低K血症＋脱水に注意",
+    conditions: [
+      { name: "低カリウム血症（低K血症）", desc: "筋力低下・易疲労感・不整脈（テント状T波の消失・U波出現・QT延長）", action: "ジゴキシン同時内服の場合は低K血症でジゴキシン毒性が増大→危険度が上がる" },
+      { name: "脱水・低血圧", desc: "高齢者・夏季・嘔吐下痢で急速に脱水。起立性低血圧→転倒リスク", action: "「薬を飲んでいたら急に元気がなくなった」→脱水・低血圧を疑い補液" },
+    ],
+    points: ["ジゴキシン＋利尿薬の組み合わせは特に低K血症で危険", "K保持性利尿薬（スピロノラクトン）はACE阻害薬・ARBと併用で高K血症に注意"],
+    icon: "⚗️", color: "#2d9748",
+  },
+  {
+    id: 19,
+    drugs: ["エナラプリル", "レニベース", "リシノプリル", "ロンゲス", "イミダプリル", "タナトリル", "ペリンドプリル", "コバシル"],
+    stemHint: "ステム：〜プリル（ACE阻害薬）",
+    diseases: ["高血圧症", "慢性心不全", "糖尿病性腎症（腎保護）", "左室収縮不全"],
+    category: "腎・電解質",
+    level: "high",
+    title: "ACE阻害薬内服中→血管性浮腫に注意（アドレナリン無効）",
+    conditions: [
+      { name: "血管性浮腫（血管神経性浮腫）", desc: "口唇・舌・顔面・喉頭の急激な腫脹。喉頭浮腫は窒息の危険。投与開始数週〜数年後にも発症", action: "顔面・口唇・舌の腫脹＋ACE阻害薬内服→気道確保準備。★抗ヒスタミン薬・ステロイド・アドレナリンは無効（ブラジキニン介在性のため）" },
+      { name: "高カリウム血症（高K血症）", desc: "腎機能低下＋ACE阻害薬でK貯留。K保持性利尿薬・ARBとの併用でさらに増加", action: "嘔気・倦怠・筋力低下→高K血症の可能性。心電図確認" },
+    ],
+    points: ["血管性浮腫はARBでも起きることがある（別機序）", "ACE阻害薬の空咳（日本人の20〜30%）はARBに変更で消失", "ACE阻害薬関連血管性浮腫の発生率：0.1〜0.7%（アフリカ系患者でリスクが高い）", "有効な治療薬：①イカチバント（フィラジル®）30mg SC（ブラジキニンB2受容体拮抗薬・最速） ②新鮮凍結血漿（FFP） ③C1インヒビター製剤", "★抗ヒスタミン薬・ステロイド・アドレナリンは無効：アレルギー性ではなくブラジキニン介在性のため"],
+    icon: "⚗️", color: "#2d9748",
+  },
+  // ===== 気道・呼吸 =====
+  {
+    id: 20,
+    drugs: ["テオフィリン", "テオドール", "ユニフィル", "アミノフィリン", "ネオフィリン"],
+    stemHint: "キサンチン系気管支拡張薬（喘息・COPD）",
+    diseases: ["気管支喘息", "COPD", "高齢者の気道閉塞性疾患"],
+    category: "気道・呼吸",
+    level: "high",
+    title: "テオフィリン内服中→中毒症状に注意",
+    conditions: [
+      { name: "テオフィリン中毒", desc: "嘔吐・振戦・頻脈・痙攣・不整脈。有効域が狭く、発熱・抗菌薬（エリスロマイシン等）で血中濃度が急上昇", action: "痙攣＋頻脈＋嘔吐＋テオフィリン内服→中毒を疑い採血。3次搬送" },
+    ],
+    points: ["有効域：10〜20μg/mL。20以上で中毒症状", "発熱・感染症・エリスロマイシン・フルコナゾールで血中濃度が急上昇", "最近は使用が減少しているが、高齢者に内服が残っていることがある"],
+    icon: "🫁", color: "#0d7c5f",
+  },
+];
+
+const CATEGORIES = ["すべて", "出血リスク", "血糖・代謝", "循環器", "神経・精神", "ステロイド・免疫", "腎・電解質", "気道・呼吸"];
+
+const LEVEL_META = {
+  critical: { label: "最重要", color: "#e53e3e", bg: "#2d0a0a" },
+  high:     { label: "重要",   color: "#d97706", bg: "#2d1a00" },
+  moderate: { label: "注意",   color: "#3182ce", bg: "#0a1a2d" },
+};
+
+const categoryColors = {
+  "出血リスク":       "#e53e3e",
+  "血糖・代謝":       "#d97706",
+  "循環器":           "#c05621",
+  "神経・精神":       "#7c3aed",
+  "ステロイド・免疫": "#276749",
+  "腎・電解質":       "#2d9748",
+  "気道・呼吸":       "#0d7c5f",
+};
+
+const DISEASE_LOOKUP = [
+  {
+    id: "d1", name: "心房細動（AF）", icon: "💓",
+    drugs: [
+      { name: "ワルファリン / DOAC（〜キサバン）", reason: "血栓塞栓予防（脳梗塞予防）", alerts: "出血リスク最大級。頭部外傷→即3次搬送。DOAC種類と最終服薬時刻を確認" },
+      { name: "ジゴキシン（ジゴシン®）", reason: "心拍数コントロール", alerts: "ジゴキシン中毒：嘔吐＋徐脈＋視覚異常。Ca製剤投与は禁忌→致死的VF" },
+      { name: "β遮断薬（〜ロール）", reason: "心拍数コントロール", alerts: "ショック時に頻脈が出ない→脈正常でもショックを疑う" },
+      { name: "アミオダロン（アンカロン®）", reason: "洞調律維持・心拍数コントロール", alerts: "QT延長・甲状腺・肺毒性に注意。半減期40〜55日" },
+    ],
+  },
+  {
+    id: "d2", name: "高血圧症", icon: "📈",
+    drugs: [
+      { name: "Ca拮抗薬（〜ジピン）", reason: "降圧", alerts: "過量服薬で徐脈・ショック。Ca製剤＋高用量インスリン療法が有効。徐放製剤は症状遅発" },
+      { name: "β遮断薬（〜ロール）", reason: "降圧・脈拍管理", alerts: "ショック時に頻脈が出ない。急な中止でリバウンド高血圧" },
+      { name: "ACE阻害薬（〜プリル）", reason: "降圧・腎保護", alerts: "血管性浮腫（喉頭浮腫）→気道確保必須。アドレナリン・抗ヒスタミン薬は無効" },
+      { name: "ARB（〜サルタン）", reason: "降圧・腎保護", alerts: "高K血症・腎機能低下に注意。妊婦禁忌" },
+      { name: "利尿薬（ラシックス等）", reason: "降圧・浮腫管理", alerts: "低K血症→不整脈リスク。脱水→低血圧・転倒" },
+    ],
+  },
+  {
+    id: "d3", name: "慢性心不全", icon: "🫀",
+    drugs: [
+      { name: "ジゴキシン（ジゴシン®）", reason: "心収縮力増強・心拍数調節", alerts: "ジゴキシン中毒：嘔吐＋徐脈＋視覚異常。低K血症で毒性増大。Ca製剤禁忌" },
+      { name: "β遮断薬（〜ロール）", reason: "心保護", alerts: "ショック時に頻脈が出ない。急な中止でリバウンド" },
+      { name: "利尿薬（フロセミド等）", reason: "うっ血管理", alerts: "低K血症・低Na血症・脱水。ジゴキシン併用で危険度↑" },
+      { name: "ACE阻害薬 / ARB", reason: "心保護・前後負荷軽減", alerts: "血管性浮腫（ACE阻害薬）・高K血症に注意" },
+      { name: "SGLT2阻害薬（〜グリフロジン）", reason: "心不全入院・死亡リスク低減", alerts: "正常血糖DKAに注意。術前3日中止が必要" },
+    ],
+  },
+  {
+    id: "d4", name: "2型糖尿病", icon: "💉",
+    drugs: [
+      { name: "インスリン製剤", reason: "血糖コントロール", alerts: "意識障害＝低血糖を最初に疑え。血糖測定が最優先" },
+      { name: "SU薬（グリメピリド等）", reason: "インスリン分泌促進", alerts: "遷延性低血糖。ブドウ糖単独では悪循環→オクトレオチドが有効" },
+      { name: "メトホルミン（メトグルコ®）", reason: "インスリン抵抗性改善（第一選択）", alerts: "造影CT前後48時間休薬必須。腎不全＋内服→乳酸アシドーシス" },
+      { name: "SGLT2阻害薬（〜グリフロジン）", reason: "血糖降下・心腎保護", alerts: "血糖正常でもDKAを起こす（約50%が正常血糖）。術前3日中止" },
+      { name: "GLP-1受容体作動薬（〜グルチド）", reason: "血糖降下・体重減少", alerts: "膵炎：急激な腹痛・背部痛→即中止" },
+    ],
+  },
+  {
+    id: "d5", name: "脳梗塞・TIA既往", icon: "🧠",
+    drugs: [
+      { name: "抗血小板薬（バイアスピリン・プラビックス等）", reason: "再発予防", alerts: "出血しにくい。外傷・頭部外傷で通常より慎重に評価。DAPT併用でリスクさらに増大" },
+      { name: "ワルファリン / DOAC", reason: "心房細動関連脳梗塞の再発予防", alerts: "出血リスク最大級。軽微な頭部外傷でも硬膜下血腫を疑う" },
+      { name: "スタチン（〜スタチン）", reason: "動脈硬化進行抑制", alerts: "横紋筋融解症（筋肉痛・CK上昇）・肝障害に注意" },
+    ],
+  },
+  {
+    id: "d6", name: "統合失調症", icon: "🧠",
+    drugs: [
+      { name: "抗精神病薬（〜ピン・〜ペリドン・セレネース等）", reason: "陽性症状（幻覚・妄想）・陰性症状の治療", alerts: "悪性症候群：高体温＋筋強剛＋意識障害→即冷却・ダントロレン投与・3次搬送。アカシジアは「不安」と誤認されやすい" },
+    ],
+  },
+  {
+    id: "d7", name: "双極性障害（躁うつ病）", icon: "🧠",
+    drugs: [
+      { name: "炭酸リチウム（リーマス®）", reason: "気分安定・躁状態治療", alerts: "意識障害＋振戦＋嘔吐→リチウム中毒を疑え。脱水・NSAIDsでLi濃度急上昇" },
+      { name: "バルプロ酸（デパケン®）", reason: "気分安定・躁状態治療", alerts: "意識障害→高アンモニア血症を疑いNH3採血。妊婦に催奇形性リスク" },
+      { name: "抗精神病薬（〜ピン等）", reason: "躁状態・うつ状態補助", alerts: "悪性症候群・血糖上昇（オランザピン）に注意" },
+    ],
+  },
+  {
+    id: "d8", name: "うつ病・不安障害", icon: "🧠",
+    drugs: [
+      { name: "SSRI / SNRI（レクサプロ・サインバルタ等）", reason: "抗うつ・抗不安", alerts: "セロトニン症候群（複数の薬の併用で発症）。急な中止で中断症候群" },
+      { name: "三環系抗うつ薬 TCA（トリプタノール等）", reason: "難治性うつ・慢性疼痛", alerts: "過量服薬で致死的。QRS延長→重炭酸Na投与。フルマゼニルは絶対禁忌" },
+    ],
+  },
+  {
+    id: "d9", name: "てんかん", icon: "⚡",
+    drugs: [
+      { name: "バルプロ酸（デパケン®）", reason: "全般性・欠神発作", alerts: "意識障害→高アンモニア血症。服薬中断で痙攣重積リスク" },
+      { name: "レベチラセタム（イーケプラ®）", reason: "焦点性・全般性てんかん", alerts: "行動変容・攻撃性。腎機能低下で蓄積" },
+      { name: "フェニトイン / ホスフェニトイン（ホストイン®）", reason: "部分発作・全般発作", alerts: "心電図でQT延長・徐脈に注意。有効域が狭い" },
+      { name: "ラモトリギン（ラミクタール®）", reason: "部分・全般発作・双極性障害", alerts: "スティーブンス・ジョンソン症候群（SJS）：皮疹＋発熱→緊急対応" },
+    ],
+  },
+  {
+    id: "d10", name: "関節リウマチ・膠原病", icon: "💊",
+    drugs: [
+      { name: "ステロイド（プレドニン等）", reason: "炎症・免疫抑制", alerts: "副腎不全クリーゼ：低血圧＋低血糖＋低Na血症。ハイドロコルチゾン100mg IV即投与。初期輸液：生食1000mL" },
+      { name: "メトトレキサート（MTX）", reason: "免疫抑制・関節破壊抑制", alerts: "骨髄抑制・重症肺炎（MTX肺炎）・口内炎。葉酸欠乏" },
+      { name: "生物学的製剤（〜マブ・〜ネプト等）", reason: "炎症性サイトカイン抑制", alerts: "結核・ニューモシスチス肺炎等の日和見感染症に注意" },
+    ],
+  },
+  {
+    id: "d11", name: "深部静脈血栓症（DVT）/ 肺塞栓（PE）", icon: "🩺",
+    drugs: [
+      { name: "ワルファリン / DOAC", reason: "血栓再発予防・治療", alerts: "出血リスク最大級。外傷・頭部外傷で硬膜下血腫リスク↑" },
+      { name: "ヘパリン（急性期）", reason: "急性期抗凝固", alerts: "HIT（ヘパリン起因性血小板減少症）：5〜14日後に血小板↓＋血栓→即中止" },
+    ],
+  },
+  {
+    id: "d12", name: "気管支喘息 / COPD", icon: "🫁",
+    drugs: [
+      { name: "テオフィリン（テオドール®等）", reason: "気管支拡張", alerts: "テオフィリン中毒：発熱・抗菌薬で血中濃度急上昇→痙攣・頻脈・嘔吐" },
+      { name: "ステロイド吸入 / 経口", reason: "気道炎症抑制", alerts: "長期経口ステロイドでは副腎不全クリーゼのリスクあり" },
+      { name: "β₂刺激薬（サルブタモール等）", reason: "気管支拡張（急性発作）", alerts: "低K血症・頻脈。過量使用で心毒性リスク" },
+    ],
+  },
+  {
+    id: "d13", name: "慢性腎臓病（CKD）", icon: "⚗️",
+    drugs: [
+      { name: "ACE阻害薬 / ARB", reason: "腎保護・蛋白尿減少", alerts: "高K血症・腎機能悪化に注意。脱水・NSAIDs併用でAKIリスク大" },
+      { name: "SGLT2阻害薬", reason: "腎保護・進行抑制", alerts: "正常血糖DKA。eGFR<30では効果消失かつ蓄積リスク" },
+      { name: "利尿薬", reason: "浮腫・高血圧管理", alerts: "低K血症・低Na血症。過剰利尿で腎機能悪化" },
+    ],
+  },
+  {
+    id: "d14", name: "臓器移植後 / 自己免疫疾患", icon: "💊",
+    drugs: [
+      { name: "ステロイド長期内服", reason: "拒絶反応・免疫抑制", alerts: "副腎不全クリーゼ（急な中止＋ストレス）・重症感染症・血糖上昇" },
+      { name: "免疫抑制薬（タクロリムス・シクロスポリン等）", reason: "拒絶反応予防", alerts: "腎毒性・感染症（ニューモシスチス肺炎・CMV）。有効域が狭く中毒リスク" },
+    ],
+  },
+];
+
+const DISEASE_CATEGORIES = ["すべて", "循環器", "代謝・内分泌", "神経・精神", "呼吸器", "腎・泌尿器", "免疫・膠原病", "血液・凝固"];
+const DISEASE_CATEGORY_MAP = {
+  "d1": "循環器", "d2": "循環器", "d3": "循環器",
+  "d4": "代謝・内分泌", "d5": "循環器",
+  "d6": "神経・精神", "d7": "神経・精神", "d8": "神経・精神", "d9": "神経・精神",
+  "d10": "免疫・膠原病", "d11": "血液・凝固",
+  "d12": "呼吸器", "d13": "腎・泌尿器", "d14": "免疫・膠原病",
+};
+
+
+export default function App() {
+  const [mode, setMode] = useState("drug"); // "drug" | "disease"
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("すべて");
+  const [openId, setOpenId] = useState(null);
+  const [diseaseCat, setDiseaseCat] = useState("すべて");
+  const [diseaseQuery, setDiseaseQuery] = useState("");
+  const [openDiseaseId, setOpenDiseaseId] = useState(null);
+
+  const filteredDiseases = useMemo(() => {
+    return DISEASE_LOOKUP.filter(d => {
+      const matchCat = diseaseCat === "すべて" || DISEASE_CATEGORY_MAP[d.id] === diseaseCat;
+      const q = diseaseQuery.toLowerCase().trim();
+      const matchQ = !q ||
+        d.name.toLowerCase().includes(q) ||
+        d.drugs.some(dr => dr.name.toLowerCase().includes(q) || dr.alerts.includes(q) || dr.reason.includes(q));
+      return matchCat && matchQ;
+    });
+  }, [diseaseQuery, diseaseCat]);
+
+  const filtered = useMemo(() => {
+    return ALERTS.filter(a => {
+      const matchCat = category === "すべて" || a.category === category;
+      const q = query.toLowerCase().trim();
+      const matchQ = !q ||
+        a.drugs.some(d => d.toLowerCase().includes(q)) ||
+        a.stemHint.toLowerCase().includes(q) ||
+        a.title.includes(q) ||
+        a.conditions.some(c => c.name.includes(q) || c.desc.includes(q)) ||
+        a.points.some(p => p.includes(q));
+      return matchCat && matchQ;
+    });
+  }, [query, category]);
+
+  function highlight(text) {
+    if (!query.trim() || typeof text !== 'string') return text;
+    const q = query.trim().toLowerCase();
+    const parts = text.split(new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"));
+    return parts.map((p, i) =>
+      p.toLowerCase() === q.toLowerCase()
+        ? <mark key={i} style={{ background: "#f6e05e", color: "#1a1a1a", borderRadius: 2, padding: "0 1px" }}>{p}</mark>
+        : p
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: "'Noto Sans JP','Hiragino Sans',sans-serif", background: "#0a0d14", minHeight: "100vh", color: "#e2e8f0" }}>
+
+      {/* Header */}
+      <div style={{ background: "linear-gradient(135deg, #1a0a0a 0%, #0a0d14 60%)", borderBottom: "2px solid #e53e3e", padding: "18px 20px 14px" }}>
+        <div style={{ maxWidth: 760, margin: "0 auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 28 }}>⚠️</span>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 20, fontWeight: 900, color: "#fff", letterSpacing: "0.04em" }}>薬剤逆引き警戒アプリ</h1>
+              <p style={{ margin: 0, fontSize: 11, color: "#718096", letterSpacing: "0.08em" }}>
+                DRUG ALERT REVERSE LOOKUP — お薬手帳を見たら→この病態を疑え｜全{ALERTS.length}パターン
+              </p>
+            </div>
+          </div>
+          <div style={{ background: "#1a1a0a", border: "1px solid #d97706", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#d97706", lineHeight: 1.7 }}>
+            💡 <strong>使い方：</strong>お薬手帳で薬名を見つけたら薬名で検索 → 注意すべき病態・アクションが即座に表示
+          </div>
+          {/* モード切替タブ */}
+          <div style={{ display: "flex", gap: 4, marginTop: 12 }}>
+            {[
+              { key: "drug",    label: "💊 薬名から検索" },
+              { key: "disease", label: "🏥 疾患名から検索" },
+            ].map(m => (
+              <button key={m.key} onClick={() => setMode(m.key)}
+                style={{ padding: "8px 16px", borderRadius: "8px 8px 0 0", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                  background: mode === m.key ? "#0a0d14" : "transparent",
+                  color: mode === m.key ? "#fff" : "#718096",
+                  borderBottom: mode === m.key ? "2px solid #e53e3e" : "2px solid transparent" }}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 760, margin: "0 auto", padding: "14px 14px" }}>
+
+        {/* ===== 疾患から検索モード ===== */}
+        {mode === "disease" && (
+          <div>
+            <div style={{ position: "relative", marginBottom: 10 }}>
+              <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", opacity: 0.4 }}>🔍</span>
+              <input
+                value={diseaseQuery}
+                onChange={e => { setDiseaseQuery(e.target.value); setOpenDiseaseId(null); }}
+                placeholder="疾患名で検索（例：心房細動、糖尿病、てんかん…）"
+                style={{ width: "100%", boxSizing: "border-box", padding: "12px 12px 12px 38px", background: "#161b27", border: "1px solid #2d3748", borderRadius: 8, color: "#e2e8f0", fontSize: 15, outline: "none" }}
+              />
+              {diseaseQuery && (
+                <button onClick={() => { setDiseaseQuery(""); setOpenDiseaseId(null); }}
+                  style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#718096", cursor: "pointer", fontSize: 18 }}>✕</button>
+              )}
+            </div>
+
+            {/* 疾患ヒント */}
+            {!diseaseQuery && (
+              <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+                {["心房細動", "高血圧", "糖尿病", "てんかん", "統合失調症", "慢性心不全", "CKD", "喘息"].map(h => (
+                  <button key={h} onClick={() => setDiseaseQuery(h)}
+                    style={{ padding: "3px 10px", borderRadius: 12, border: "1px solid #2d3748", background: "none", color: "#718096", fontSize: 11, cursor: "pointer" }}>
+                    {h}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* 疾患カテゴリフィルター */}
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 12 }}>
+              {DISEASE_CATEGORIES.map(cat => {
+                const active = diseaseCat === cat;
+                const catColor = { "循環器": "#c05621", "代謝・内分泌": "#d97706", "神経・精神": "#7c3aed", "呼吸器": "#0d7c5f", "腎・泌尿器": "#2d9748", "免疫・膠原病": "#276749", "血液・凝固": "#9b2335" }[cat] || "#4a5568";
+                return (
+                  <button key={cat} onClick={() => { setDiseaseCat(cat); setOpenDiseaseId(null); }}
+                    style={{ padding: "5px 11px", borderRadius: 14, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                      background: active ? catColor : "#161b27",
+                      color: active ? "#fff" : "#718096", transition: "all 0.15s" }}>
+                    {cat}
+                  </button>
+                );
+              })}
+            </div>
+
+            <p style={{ fontSize: 11, color: "#4a5568", marginBottom: 10 }}>{filteredDiseases.length} / {DISEASE_LOOKUP.length} 件表示</p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {filteredDiseases.map(disease => {
+                const isOpen = openDiseaseId === disease.id;
+                const catColor = { "循環器": "#c05621", "代謝・内分泌": "#d97706", "神経・精神": "#7c3aed", "呼吸器": "#0d7c5f", "腎・泌尿器": "#2d9748", "免疫・膠原病": "#276749", "血液・凝固": "#9b2335" }[DISEASE_CATEGORY_MAP[disease.id]] || "#4a5568";
+                return (
+                  <div key={disease.id} style={{ borderRadius: 10, border: `1px solid ${isOpen ? catColor : "#2d3748"}`, overflow: "hidden", background: "#161b27" }}>
+                    {/* ヘッダー */}
+                    <div onClick={() => setOpenDiseaseId(isOpen ? null : disease.id)}
+                      style={{ padding: "12px 14px", cursor: "pointer", display: "flex", gap: 10, alignItems: "center" }}>
+                      <span style={{ fontSize: 22, flexShrink: 0 }}>{disease.icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                          <span style={{ fontWeight: 800, fontSize: 15, color: "#f7fafc" }}>{disease.name}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 7px", borderRadius: 8, background: catColor + "22", color: catColor, border: `1px solid ${catColor}55` }}>
+                            {DISEASE_CATEGORY_MAP[disease.id]}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#4a5568" }}>
+                          服用中の可能性がある薬：{disease.drugs.map(d => d.name.split('（')[0]).join(' / ')}
+                        </div>
+                      </div>
+                      <span style={{ color: "#4a5568", fontSize: 13, flexShrink: 0, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "none" }}>▼</span>
+                    </div>
+
+                    {/* 展開詳細 */}
+                    {isOpen && (
+                      <div style={{ borderTop: `1px solid ${catColor}44`, background: "#0f1420", padding: "12px 14px" }}>
+                        <div style={{ fontSize: 11, color: "#63b3ed", fontWeight: 800, marginBottom: 8, letterSpacing: "0.08em" }}>
+                          💊 服用中の可能性がある薬と注意事項
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {disease.drugs.map((drug, i) => (
+                            <div key={i} style={{ background: "#161b27", borderRadius: 8, border: "1px solid #2d3748", overflow: "hidden" }}>
+                              <div style={{ background: catColor + "18", padding: "6px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: catColor, flex: 1 }}>{drug.name}</span>
+                              </div>
+                              <div style={{ padding: "8px 12px" }}>
+                                <div style={{ fontSize: 11, color: "#718096", marginBottom: 5 }}>
+                                  処方目的：<span style={{ color: "#a0aec0" }}>{drug.reason}</span>
+                                </div>
+                                <div style={{ fontSize: 12, color: "#f6ad55", background: "#1a1400", borderLeft: "3px solid #e53e3e", borderRadius: "0 4px 4px 0", padding: "6px 10px", lineHeight: 1.7 }}>
+                                  ⚠ {drug.alerts}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {filteredDiseases.length === 0 && (
+              <div style={{ textAlign: "center", padding: "48px 0", color: "#4a5568" }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
+                <p>「{diseaseQuery}」に一致する疾患が見つかりません</p>
+                <button onClick={() => setDiseaseQuery("")}
+                  style={{ marginTop: 8, padding: "6px 16px", borderRadius: 8, border: "1px solid #2d3748", background: "none", color: "#718096", cursor: "pointer", fontSize: 13 }}>
+                  検索をクリア
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===== 薬名から検索モード ===== */}
+        {mode === "drug" && (<>
+        {/* Search */}
+        <div style={{ position: "relative", marginBottom: 10 }}>
+          <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", opacity: 0.4 }}>🔍</span>
+          <input
+            value={query}
+            onChange={e => { setQuery(e.target.value); setOpenId(null); }}
+            placeholder="薬名・商品名・病態名で検索（例：ワーファリン、ジゴキシン、低血糖…）"
+            style={{ width: "100%", boxSizing: "border-box", padding: "12px 12px 12px 38px", background: "#161b27", border: "1px solid #2d3748", borderRadius: 8, color: "#e2e8f0", fontSize: 15, outline: "none" }}
+          />
+          {query && (
+            <button onClick={() => { setQuery(""); setOpenId(null); }}
+              style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#718096", cursor: "pointer", fontSize: 18 }}>✕</button>
+          )}
+        </div>
+
+        {/* 検索ヒント */}
+        {!query && (
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+            {["ワーファリン", "インスリン", "リーマス", "デパケン", "ジゴキシン", "プレドニン", "β遮断薬", "SU薬"].map(h => (
+              <button key={h} onClick={() => setQuery(h)}
+                style={{ padding: "3px 10px", borderRadius: 12, border: "1px solid #2d3748", background: "none", color: "#718096", fontSize: 11, cursor: "pointer" }}>
+                {h}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Category filter */}
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 14 }}>
+          {CATEGORIES.map(cat => {
+            const active = category === cat;
+            return (
+              <button key={cat} onClick={() => { setCategory(cat); setOpenId(null); }}
+                style={{ padding: "5px 11px", borderRadius: 14, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  background: active ? (categoryColors[cat] || "#e53e3e") : "#161b27",
+                  color: active ? "#fff" : "#718096", transition: "all 0.15s" }}>
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+
+        <p style={{ fontSize: 11, color: "#4a5568", marginBottom: 10 }}>{filtered.length} / {ALERTS.length} 件表示</p>
+
+        {/* Alert cards */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {filtered.map(alert => {
+            const isOpen = openId === alert.id;
+            const lm = LEVEL_META[alert.level];
+
+            return (
+              <div key={alert.id} style={{ borderRadius: 10, border: `1px solid ${isOpen ? alert.color : "#2d3748"}`, overflow: "hidden", background: "#161b27" }}>
+
+                {/* Card header */}
+                <div onClick={() => setOpenId(isOpen ? null : alert.id)}
+                  style={{ padding: "12px 14px", cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                  <span style={{ fontSize: 24, flexShrink: 0 }}>{alert.icon}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4, alignItems: "center" }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 8, background: lm.bg, color: lm.color, border: `1px solid ${lm.color}` }}>
+                        🚨 {lm.label}
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 8, background: (categoryColors[alert.category] || "#4a5568") + "22", color: categoryColors[alert.category] || "#4a5568", border: `1px solid ${(categoryColors[alert.category] || "#4a5568")}55` }}>
+                        {alert.category}
+                      </span>
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: "#f7fafc", marginBottom: 4, lineHeight: 1.4 }}>
+                      {highlight(alert.title)}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                      {alert.drugs.slice(0, 6).map((d, i) => (
+                        <span key={i} style={{ fontSize: 10, color: "#4a90d9", background: "#0d1f35", borderRadius: 4, padding: "1px 6px" }}>
+                          {highlight(d)}
+                        </span>
+                      ))}
+                      {alert.drugs.length > 6 && <span style={{ fontSize: 10, color: "#4a5568" }}>+{alert.drugs.length - 6}件</span>}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#4a5568", marginTop: 3 }}>{alert.stemHint}</div>
+                    {/* 背景疾患タグ（閉じた状態でも表示） */}
+                    {alert.diseases && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginTop: 4 }}>
+                        {alert.diseases.slice(0, 3).map((d, i) => (
+                          <span key={i} style={{ fontSize: 9, color: "#4a9568", background: "#0a1f14", border: "1px solid #1a4a2a", borderRadius: 4, padding: "1px 5px" }}>
+                            {d}
+                          </span>
+                        ))}
+                        {alert.diseases.length > 3 && <span style={{ fontSize: 9, color: "#4a5568" }}>+{alert.diseases.length - 3}件</span>}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{ color: "#4a5568", fontSize: 13, flexShrink: 0, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "none", marginTop: 4 }}>▼</span>
+                </div>
+
+                {/* Expanded detail */}
+                {isOpen && (
+                  <div style={{ borderTop: `1px solid ${alert.color}44`, background: "#0f1420" }}>
+                    <div style={{ padding: "12px 14px" }}>
+
+                      {/* 背景疾患 */}
+                      {alert.diseases && (
+                        <div style={{ marginBottom: 12 }}>
+                          <div style={{ fontSize: 11, color: "#68d391", fontWeight: 800, marginBottom: 6, letterSpacing: "0.08em" }}>🏥 この薬を飲んでいる人が患っている疾患</div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                            {alert.diseases.map((d, i) => (
+                              <span key={i} style={{ fontSize: 11, color: "#68d391", background: "#0d2a1a", border: "1px solid #276749", borderRadius: 6, padding: "3px 9px" }}>
+                                {d}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: "#e53e3e", fontWeight: 800, marginBottom: 8, letterSpacing: "0.08em" }}>🚨 疑うべき病態とアクション</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {alert.conditions.map((cond, i) => (
+                          <div key={i} style={{ background: "#161b27", borderRadius: 8, border: `1px solid ${alert.color}44`, overflow: "hidden" }}>
+                            <div style={{ background: alert.color + "22", padding: "6px 12px", fontWeight: 700, fontSize: 13, color: alert.color }}>
+                              {highlight(cond.name)}
+                            </div>
+                            <div style={{ padding: "8px 12px" }}>
+                              <div style={{ fontSize: 12, color: "#a0aec0", lineHeight: 1.7, marginBottom: 6, whiteSpace: "pre-line" }}>
+                                {highlight(cond.desc)}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#f6ad55", background: "#1a1400", borderLeft: "3px solid #d97706", borderRadius: "0 4px 4px 0", padding: "5px 10px", lineHeight: 1.6 }}>
+                                ▶ {highlight(cond.action)}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* ポイント */}
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: 11, color: "#63b3ed", fontWeight: 800, marginBottom: 6, letterSpacing: "0.08em" }}>📌 覚えておくべきポイント</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {alert.points.map((p, i) => (
+                            <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12, color: "#e2e8f0", lineHeight: 1.7 }}>
+                              <span style={{ color: "#63b3ed", flexShrink: 0 }}>•</span>
+                              <span>{highlight(p)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {filtered.length === 0 && (
+          <div style={{ textAlign: "center", padding: "48px 0", color: "#4a5568" }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>🔍</div>
+            <p>「{query}」に一致する薬剤が見つかりません</p>
+            <button onClick={() => setQuery("")}
+              style={{ marginTop: 8, padding: "6px 16px", borderRadius: 8, border: "1px solid #2d3748", background: "none", color: "#718096", cursor: "pointer", fontSize: 13 }}>
+              検索をクリア
+            </button>
+          </div>
+        )}
+
+        {/* 凡例 */}
+        <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {Object.entries(LEVEL_META).map(([k, v]) => (
+            <div key={k} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11 }}>
+              <span style={{ background: v.bg, color: v.color, border: `1px solid ${v.color}`, borderRadius: 6, padding: "2px 8px", fontWeight: 700 }}>🚨 {v.label}</span>
+            </div>
+          ))}
+        </div>
+
+        </>)}
+
+        <div style={{ marginTop: 10, padding: 10, background: "#1a0f0f", borderRadius: 8, border: "1px solid #4a1818", fontSize: 11, color: "#4a5568", lineHeight: 1.7 }}>
+          ⚠️ 本アプリは学習・参照用です。実際の判断は各施設のプロトコルと医師の指示に従ってください。
+        </div>
+      </div>
+    </div>
+  );
+}
