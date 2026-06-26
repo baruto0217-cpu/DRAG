@@ -48,6 +48,21 @@
     .flex-col { display: flex; flex-direction: column; gap: 10px; }
     .count-text { font-size: 11px; color: #4a5568; margin-bottom: 10px; }
     .section-label { font-size: 11px; font-weight: 800; margin-bottom: 6px; letter-spacing: 0.08em; }
+    .mic-btn {
+      position: absolute; right: 38px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer; font-size: 18px;
+      padding: 4px; border-radius: 50%; transition: background 0.15s; line-height: 1;
+    }
+    .mic-btn:hover { background: #2d3748; }
+    .mic-btn.listening {
+      animation: pulse 0.8s ease-in-out infinite alternate;
+      background: #2d0a0a;
+    }
+    @keyframes pulse {
+      from { box-shadow: 0 0 0 0 rgba(229,62,62,0.6); }
+      to   { box-shadow: 0 0 0 8px rgba(229,62,62,0); }
+    }
+    .mic-unsupported { display: none; }
   </style>
 </head>
 <body>
@@ -79,6 +94,7 @@
     <div class="search-wrap">
       <span class="search-icon">🔍</span>
       <input type="text" id="drug-search" placeholder="薬名・商品名・病態名で検索（例：ワーファリン、ジゴキシン、低血糖…）" oninput="renderDrugList()" />
+      <button class="mic-btn" id="mic-drug" onclick="startVoice('drug')" title="音声検索">🎤</button>
       <button class="clear-btn" onclick="document.getElementById('drug-search').value='';renderDrugList();" style="display:none;" id="drug-clear">✕</button>
     </div>
     <div class="flex-wrap" id="drug-hints"></div>
@@ -93,6 +109,7 @@
     <div class="search-wrap">
       <span class="search-icon">🔍</span>
       <input type="text" id="disease-search" placeholder="疾患名で検索（例：心房細動、糖尿病、てんかん…）" oninput="renderDiseaseList()" />
+      <button class="mic-btn" id="mic-disease" onclick="startVoice('disease')" title="音声検索">🎤</button>
       <button class="clear-btn" onclick="document.getElementById('disease-search').value='';renderDiseaseList();" style="display:none;" id="dis-clear">✕</button>
     </div>
     <div class="flex-wrap" id="dis-hints"></div>
@@ -688,6 +705,102 @@ renderDrugList();
 renderDiseaseList();
 document.getElementById('subtitle').textContent =
   `DRUG ALERT REVERSE LOOKUP — お薬手帳を見たら→この病態を疑え｜${ALERTS.length}パターン / ${DISEASE_LOOKUP.length}疾患`;
+
+// =====================================================
+// 音声検索（Web Speech API）
+// =====================================================
+(function(){
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  // 非対応ブラウザではマイクボタンを非表示
+  if (!SpeechRecognition) {
+    document.querySelectorAll('.mic-btn').forEach(el => el.style.display = 'none');
+    return;
+  }
+
+  let recognition = null;
+  let activeMode  = null; // 'drug' | 'disease'
+
+  function createRecognition() {
+    const r = new SpeechRecognition();
+    r.lang = 'ja-JP';
+    r.interimResults = true;   // 途中結果もリアルタイムに反映
+    r.continuous = false;
+    r.maxAlternatives = 1;
+
+    r.onstart = function() {
+      // onfocus/onstart は環境依存のため startVoice 側で UI を更新済み
+    };
+
+    r.onresult = function(e) {
+      const transcript = Array.from(e.results)
+        .map(r => r[0].transcript).join('');
+      const inputId = activeMode === 'drug' ? 'drug-search' : 'disease-search';
+      document.getElementById(inputId).value = transcript;
+      if (activeMode === 'drug')    { state.drugQ = transcript; renderDrugList(); }
+      if (activeMode === 'disease') { state.disQ  = transcript; renderDiseaseList(); }
+    };
+
+    // onend は startVoice 側で上書きして使う
+    r.onend = null;
+
+    r.onerror = function(e) {
+      const msg = e.error === 'not-allowed'
+        ? 'マイクの使用が許可されていません。\nブラウザの設定からマイクを許可してください。'
+        : e.error === 'no-speech'
+        ? '音声が検出されませんでした。もう一度お試しください。'
+        : '音声認識エラー: ' + e.error;
+      if (e.error !== 'no-speech') alert(msg);
+      stopVoice();
+    };
+
+    return r;
+  }
+
+  function stopVoice() {
+    document.querySelectorAll('.mic-btn').forEach(btn => {
+      btn.classList.remove('listening');
+      btn.textContent = '🎤';
+    });
+    if (recognition) { try { recognition.stop(); } catch(_) {} recognition = null; }
+    activeMode = null;
+  }
+
+  window.startVoice = function(mode) {
+    // すでに認識中なら停止
+    if (recognition) { stopVoice(); return; }
+
+    activeMode  = mode;
+
+    // ボタンをタップした瞬間に色を変える（onstart 待ちにしない）
+    const btn = document.getElementById('mic-' + mode);
+    if (btn) { btn.classList.add('listening'); btn.textContent = '🔴'; }
+
+    // 入力欄のプレースホルダーを変更
+    const inputId = mode === 'drug' ? 'drug-search' : 'disease-search';
+    const input = document.getElementById(inputId);
+    const origPlaceholder = input.placeholder;
+    input.placeholder = '🎤 話してください…';
+
+    recognition = createRecognition();
+
+    // onend 時にプレースホルダーを戻す
+    const origOnend = recognition.onend;
+    recognition.onend = function() {
+      input.placeholder = origPlaceholder;
+      origOnend && origOnend();
+      stopVoice();
+    };
+
+    try {
+      recognition.start();
+    } catch(e) {
+      input.placeholder = origPlaceholder;
+      alert('音声認識を開始できませんでした: ' + e.message);
+      stopVoice();
+    }
+  };
+})();
 </script>
 </body>
 </html>
