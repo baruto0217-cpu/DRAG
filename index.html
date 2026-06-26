@@ -745,6 +745,7 @@ document.getElementById('subtitle').textContent =
     r.onend = null;
 
     r.onerror = function(e) {
+      if (!recognition) return;
       const msg = e.error === 'not-allowed'
         ? 'マイクの使用が許可されていません。\nブラウザの設定からマイクを許可してください。'
         : e.error === 'no-speech'
@@ -758,12 +759,15 @@ document.getElementById('subtitle').textContent =
   }
 
   function stopVoice() {
+    // recognition を先に null にしてから stop() → onend の再発火を防ぐ
+    const r = recognition;
+    recognition = null;
+    activeMode  = null;
     document.querySelectorAll('.mic-btn').forEach(btn => {
       btn.classList.remove('listening');
       btn.textContent = '🎤';
     });
-    if (recognition) { try { recognition.stop(); } catch(_) {} recognition = null; }
-    activeMode = null;
+    if (r) { try { r.stop(); } catch(_) {} }
   }
 
   window.startVoice = function(mode) {
@@ -785,10 +789,11 @@ document.getElementById('subtitle').textContent =
     recognition = createRecognition();
 
     // onend 時にプレースホルダーを戻す
-    const origOnend = recognition.onend;
+    let ended = false;
     recognition.onend = function() {
+      if (ended) return; // 二重発火防止
+      ended = true;
       input.placeholder = origPlaceholder;
-      origOnend && origOnend();
       stopVoice();
     };
 
